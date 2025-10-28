@@ -18,7 +18,7 @@ HOW TO USE WITH MY AR?
 12.  As the system plays you should see the sensor on the far left changing numbers and possibly bars moving up and down.
 13.  If you pick something like a dual VCO on BD or SD, set the target to "FILT FRQ" and then you should be in business.  Make sure you put long trigs down in order to hear the results
 14.  BRAP ON!
-15.  
+ 
 ### src/Python/wav_extract.py  
 This script started when I read a comment from ExpectResistance's page on YT that suggested that you could use arbitrary waves as input to
 the AR's CV inputs (Control-In) and immediately it hit me upside the head--I also have a blackbox and one of the things that's really amazing about it
@@ -120,9 +120,18 @@ PR's accepted.  (I just fixed the hum in the studio and gave up on it.)
 
 ### src/Python/ar_lfo_tune.py
 
+This script is based on the following equation:
+
+![Image 1](https://latex.codecogs.com/svg.image?%5CLARGE&space;&space;s=12log_%7B2%7D%5Cleft(%5Cfrac%7BBPM*N%7D%7B15*steps*F_%7Bs%7D%7D%5Cright)#n9dkrnsyaj)
+
+If you're attempting to play along, by default our N term (samples) and F-sub-s (sample rate) term are autpopulated in the script like so:
+
+![Image 1](https://latex.codecogs.com/svg.image?%5CLARGE&space;&space;s=12log_%7B2%7D%5Cleft(%5Cfrac%7BBPM*65536%7D%7B15*Steps*48000%7D%5Cright)#syh1gi3996e)
+
+Our script here defaults like this.  If you want a different output length, 65536 was picked because it was the most scalable.  You can get glacially slow cycles if you double it, and of course, you can decrease the size too.  The suggestion is to ensure your number is in a power of 2, but I mean, you can totally play with this and make other choices to see if you get weird artifacts or noise into your cycles.  
+
 You feed in:
-**
-BPM (tempo)**
+**BPM (tempo)**
 
 Steps per cycle (e.g., 64 = 4 bars)
 
