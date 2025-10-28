@@ -546,7 +546,14 @@ def main() -> None:
         rms_window_milliseconds=rms_window_milliseconds,
         silence_threshold_db=silence_threshold_db,
     )
+
+    # New:
     segments = segments[:waves_to_export]
+    actual_count = len(segments)           # ← what we really found
+    if actual_count == 0:
+        raise RuntimeError("No segments detected. Try adjusting --silence-db or --min-on-ms.")
+    waves_to_export = actual_count         # ← drive all loops with the real count
+
 
     # === Extract single cycles ===
     print(f"Step {next_step+1}/6  Extracting single cycles…")
@@ -610,22 +617,54 @@ def main() -> None:
         )
         show_progress("          Rendering waves", wave_index, waves_to_export)
 
-    # === Reports (PDF, CSV, ZIP) ===
-    print(f"Step {next_step+2}/6  Building PDF preview…")
-    with PdfPages(str(preview_pdf_path)) as pdf_handle:
-        for wave_index in range(waves_to_export):
-            file_stem = f"WAVE{wave_index+1:02d}"
-            preview_audio, _ = sf.read(str(dirty_dir / f"{file_stem}.wav"), always_2d=False)
-            if preview_audio.ndim == 2:
-                preview_audio = preview_audio[:, 0]
-            figure, axes = plt.subplots(1, 2, figsize=(7.2, 2.0))
-            axes[0].plot(preview_audio[:2048]); axes[0].set_title(f"{file_stem} (time)", fontsize=9)
-            axes[0].set_xticks([]); axes[0].set_yticks([])
-            spectrum_db = magnitude_spectrum_db(preview_audio); axes[1].plot(spectrum_db)
-            axes[1].set_title(f"{file_stem} (spectrum dB)", fontsize=9)
-            axes[1].set_xticks([]); axes[1].set_yticks([])
-            figure.tight_layout(); pdf_handle.savefig(figure); plt.close(figure)
-            show_progress("          Drawing preview", wave_index + 1, waves_to_export)
+        # === Reports (PDF, CSV, ZIP) ===
+        print(f"Step {next_step+2}/6  Building PDF preview…")
+        with PdfPages(str(preview_pdf_path)) as pdf_handle:
+            for wave_index in range(waves_to_export):
+                file_stem = f"WAVE{wave_index+1:02d}"
+                wav_path = dirty_dir / f"{file_stem}.wav"
+                if not wav_path.exists():
+                    # Skip gracefully if a file is missing for any reason
+                    continue
+                cycle, _ = sf.read(str(wav_path), always_2d=False)
+                if cycle.ndim == 2:
+                    cycle = cycle[:, 0]
+                cycle = cycle.astype(np.float32)
+
+                # Downsample the FULL cycle to a fixed preview length so we always show 1 complete period.
+                preview_len = 2048
+                if len(cycle) != preview_len:
+                    # Use FFT resample for clean downsampling of the full period
+                    cycle_vis = np.real(np.fft.irfft(np.fft.rfft(cycle), n=preview_len))
+                    # Re-normalize visualization to avoid accidental tiny ranges from numerical effects
+                    peak = np.max(np.abs(cycle_vis)) or 1.0
+                    cycle_vis = cycle_vis / peak
+                else:
+                    cycle_vis = cycle
+
+                # Also compute magnitude spectrum in dB for the raw cycle
+                spectrum_db = magnitude_spectrum_db(cycle)
+
+                fig, axs = plt.subplots(1, 2, figsize=(7.6, 2.2))
+                # Time-domain: guaranteed one full cycle
+                axs[0].plot(cycle_vis, linewidth=1.0)
+                axs[0].set_title(f"{file_stem} — 1 full cycle (downsampled to {preview_len})", fontsize=9)
+                axs[0].set_xlim(0, len(cycle_vis)-1)
+                axs[0].set_ylim(-1.05, 1.05)
+                axs[0].grid(True, linewidth=0.3, alpha=0.4)
+                axs[0].set_xticks([]); axs[0].set_yticks([])
+
+                # Spectrum view
+                axs[1].plot(spectrum_db, linewidth=1.0)
+                axs[1].set_title(f"{file_stem} — spectrum (dB)", fontsize=9)
+                axs[1].grid(True, linewidth=0.3, alpha=0.4)
+                axs[1].set_xticks([]); axs[1].set_yticks([])
+
+                fig.tight_layout()
+                pdf_handle.savefig(fig)
+                plt.close(fig)
+                show_progress("          Drawing preview", wave_index + 1, waves_to_export)
+
 
     print(f"Step {next_step+3}/6  Writing CSV…")
     with open(summary_csv_path, "w", newline="") as csv_file:
