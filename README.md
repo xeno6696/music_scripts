@@ -120,6 +120,9 @@ PR's accepted.  (I just fixed the hum in the studio and gave up on it.)
 
 ### src/Python/ar_lfo_tune.py
 
+[![\Large x=\frac{-b\pm\sqrt{b^2-4ac}}{2a}](https://latex.codecogs.com/svg.latex?\Large&space;x=\frac{-b\pm\sqrt{b^2-4ac}}{2a})](https://latex.codecogs.com/svg.image?&space;s=12log_{2}\left(\frac{BPM*N}{15*steps*F_{s}}\right))
+
+
 You feed in:
 **BPM (tempo)**
 
