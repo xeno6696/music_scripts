@@ -119,8 +119,7 @@ Hum biasing detection → try --dehum or raise --silence-db (e.g., -35).
 PR's accepted.  (I just fixed the hum in the studio and gave up on it.)  
 
 ### src/Python/ar_lfo_tune.py
-
-[![\Large x=\frac{-b\pm\sqrt{b^2-4ac}}{2a}](https://latex.codecogs.com/svg.latex?\Large&space;x=\frac{-b\pm\sqrt{b^2-4ac}}{2a})](https://latex.codecogs.com/svg.image?&space;s=12log_{2}\left(\frac{BPM*N}{15*steps*F_{s}}\right))
+![Image 1](https://latex.codecogs.com/svg.image?%5CLARGE&space;&space;s=12log_%7B2%7D%5Cleft(%5Cfrac%7BBPM*N%7D%7B15*steps*F_%7Bs%7D%7D%5Cright)#n9dkrnsyaj)
 
 
 You feed in:
