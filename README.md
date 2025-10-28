@@ -18,7 +18,7 @@ HOW TO USE WITH MY AR?
 12.  As the system plays you should see the sensor on the far left changing numbers and possibly bars moving up and down.
 13.  If you pick something like a dual VCO on BD or SD, set the target to "FILT FRQ" and then you should be in business.  Make sure you put long trigs down in order to hear the results
 14.  BRAP ON!
-15.  
+ 
 ### src/Python/wav_extract.py  
 This script started when I read a comment from ExpectResistance's page on YT that suggested that you could use arbitrary waves as input to
 the AR's CV inputs (Control-In) and immediately it hit me upside the head--I also have a blackbox and one of the things that's really amazing about it
@@ -121,8 +121,7 @@ PR's accepted.  (I just fixed the hum in the studio and gave up on it.)
 ### src/Python/ar_lfo_tune.py
 
 You feed in:
-**
-BPM (tempo)**
+**BPM (tempo)**
 
 Steps per cycle (e.g., 64 = 4 bars)
 
