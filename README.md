@@ -2,18 +2,9 @@
 This repository is a simple collection of various scripts (some of which are AI generated) that are designed to assist with real problems.  
 
 ## Analog RYTM Scripts
-
-### src/Python/wav_extract.py  
-This script started when I read a comment from ExpectResistance's page on YT that suggested that you could use arbitrary waves as input to
-the AR's CV inputs (Control-In) and immediately it hit me upside the head--I also have a blackbox and one of the things that's really amazing about it
-is that you can use it to sample CV and play it back to modular gear.  After confirming with ExpectResistance that he was using say, the instrument out
-of the AR as input to Control In, I got to work.  My first target was simply to transform a collection of Access Virus waves into slow cycles that I could use as a modulation source in precisely this way.  My first batch of scripts were built using ChatGPT trying to emulate Virus waveshapes, and while there were a handful of interesting shapes to use as CV sources, I wasn't happy and ultimately ended up sampling all 64 of the spectral shapes and
-using this script to elongate the cycles so that instead of centering around C5 (261.625580) they center down near 3Hz.  Playing a note at C0 should result in a VERY glacial but still smooth wave.  As a part of this process I decided to share my learning--I learned *alot* about digital audio as 
-a result of this process and hope you will as well.  You will notice a "CLEAN" and "DIRTY" folder in artifacts/.  Dirty are unaliased waves, though at the glacial pace we're playing with here, steps might not even be audible.  However if you pitch these waves WAY UP you should get some interesting results.  You WILL LOSE A VOICE but you will gain an arbitrary modulation source that also responds to sample edits, i.e. you you can alter the LFO shape in real time by messing with sample start/end points.  
-
 HOW TO USE WITH MY AR?
 
-1.  Expand the PDF and use elektron transfer to drop the files over to your AR.
+1.  Expand the ZIP and use elektron transfer to drop the files over to your AR.
 2.  Choose a pad, I use CY or CB, turn down the analog source and then select a wave in the sample slot.  Make sure loop mode is on if you want LFO
 3.  I would suggest going into the audio routing menu and turning off that pad from exiting via the main outs.  (in most cases you're sub-audio anyway)
 4.  Apply a patch cable from the output of CY/CB and to the Input of Control In.
@@ -27,6 +18,17 @@ HOW TO USE WITH MY AR?
 12.  As the system plays you should see the sensor on the far left changing numbers and possibly bars moving up and down.
 13.  If you pick something like a dual VCO on BD or SD, set the target to "FILT FRQ" and then you should be in business.  Make sure you put long trigs down in order to hear the results
 14.  BRAP ON!  
+### src/Python/wav_extract.py  
+This script started when I read a comment from ExpectResistance's page on YT that suggested that you could use arbitrary waves as input to
+the AR's CV inputs (Control-In) and immediately it hit me upside the head--I also have a blackbox and one of the things that's really amazing about it
+is that you can use it to sample CV and play it back to modular gear.  After confirming with ExpectResistance that he was using say, the instrument out
+of the AR as input to Control In, I got to work.  My first target was simply to transform a collection of Access Virus waves into slow cycles that I could use as a modulation source in precisely this way.  My first batch of scripts were built using ChatGPT trying to emulate Virus waveshapes, and while there were a handful of interesting shapes to use as CV sources, I wasn't happy and ultimately ended up sampling all 64 of the spectral shapes and
+using this script to elongate the cycles so that instead of centering around C5 (261.625580) they center down near 3Hz.  Playing a note at C0 should result in a VERY glacial but still smooth wave.  As a part of this process I decided to share my learning--I learned *alot* about digital audio as 
+a result of this process and hope you will as well.  You will notice a "CLEAN" and "DIRTY" folder in artifacts/.  Dirty are unaliased waves, though at the glacial pace we're playing with here, steps might not even be audible.  However if you pitch these waves WAY UP you should get some interesting results.  You WILL LOSE A VOICE but you will gain an arbitrary modulation source that also responds to sample edits, i.e. you you can alter the LFO shape in real time by messing with sample start/end points.  
+
+Why all this work to get shapes from my virus synth?  Raw samples might work, but there's alot of noise involved with sampling.  (Not *always* ideal.)  I wanted to get scientficially crafted artifact-free virus waves.  The Access Virus allowed you to use all of the wave types as LFO sources, and I wanted to expand that capability.  
+
+
 
 Check usage to understand:
 ```
