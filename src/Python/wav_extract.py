@@ -5,23 +5,32 @@ wav_extract.py — Generic single-cycle extractor for synth sweeps (Elektron-fri
 
 WHAT THIS DOES
 --------------
-Takes a long WAV of a synth sweep that plays a series of steady notes/waves,
-finds each sounding region automatically (via RMS envelope), picks the most
-stable portion, detects the fundamental period (around C5 by default),
-extracts exactly one cycle, resamples that cycle to a fixed sample-count
-(e.g., 65,536), normalizes/DC-removes it, makes the loop point clickless
-(positive-going zero-cross at the start, optional micro-fade), and exports:
+Takes a long WAV of a synth sweep (a sequence of steady tones/waves), finds each
+tone automatically (RMS envelope), focuses on the most stable portion, estimates
+the fundamental period near a given pitch, slices exactly one cycle, resamples
+to a fixed sample-count (e.g., 65,536), normalizes/DC-removes, aligns the loop
+to a positive-going zero-cross (with optional micro-fade), and exports:
 
 • DIRTY/  → raw single-cycles (48 kHz, 16-bit, mono), loop points embedded
 • CLEAN/  → mildly band-limited copies (same format), loop points embedded
-• Preview.pdf  → a visual check of waveform + spectrum for each file
-• Summary.csv  → peak, DC offset, detected period used
+• Preview.pdf  → time plot + spectrum per wave
+• Summary.csv  → peak, DC offset, detected period (samples)
 • <out>.zip    → everything zipped for easy transfer
 
 WHY POWERS OF TWO?
 ------------------
-Using 65,536 (or 32,768 / 131,072) samples per cycle plays nicely with
-resampling math and makes tempo-matching predictable on samplers.
+Using 65,536 (or 32,768 / 131,072) samples per cycle makes sampler/tempo work
+cleanly and yields predictable retune math.
+
+PITCH LABELING NOTE
+-------------------
+Different ecosystems label “Middle C” differently:
+• Scientific notation: Middle C = C4 = 261.625565 Hz; C5 (one octave up) = 523.251131 Hz.
+• MIDI & many synth UIs (Access, Elektron, etc.): the key labeled “C5” is Middle C (MIDI 60).
+In that MIDI-centric world, pressing “C5” produces ~261.625565 Hz.
+
+This script therefore defaults its period-hint frequency to **261.625565 Hz** and exposes it
+as --freq-note. You can also supply a MIDI note with --note-midi (A4 reference tunable).
 
 USAGE (required arguments)
 --------------------------
@@ -29,18 +38,20 @@ python wav_extract.py --in sweep.wav --out output_folder
 
 OPTIONAL (useful) FLAGS
 -----------------------
---count N           process only the first N detected waves (smoke test)
---fs 48000          target sample rate (Hz) for exports (Elektron = 48k)
---n-out 65536       samples per exported single-cycle (power-of-two ideal)
---amp 0.999         peak normalization per file
---freq-c5 523.251   expected base frequency (Hz) used by the period finder
---silence-db -40    envelope threshold (dBFS) to separate sound from silence
---min-on-ms 1200    minimum tone length (ms) accepted as a valid region
---clean-strength .6 roll-off strength for CLEAN copies (0..1, lower = darker)
---edge-fade 8       micro cosine fade (samples) at start/end to smooth slope
---dehum             enable notch filters at 60/120/180/240 Hz (off by default)
---no-zero-cross     disable phase-aligning loop to positive zero-cross
---no-force-zero     keep edge samples equal but not forced to exactly zero
+--count N              process only first N detected waves (smoke test)
+--fs 48000             target sample rate (Hz) for exports (Elektron = 48k)
+--n-out 65536          samples per exported cycle (power-of-two ideal)
+--amp 0.999            peak normalization target
+--freq-note 261.625565 base frequency (Hz) guiding period detection
+--note-midi 60         OR derive base frequency from MIDI note number
+--tuning-a4 440.0      A4 reference (Hz) for MIDI→Hz
+--silence-db -40       envelope threshold (dBFS) “sound-on” detection
+--min-on-ms 1200       minimum tone length (ms) to accept
+--clean-strength 0.6   CLEAN roll-off strength (0..1; lower = darker)
+--edge-fade 8          micro cosine fade (samples) at loop edges
+--dehum                enable 60/120/180/240 Hz notch filters (off by default)
+--no-zero-cross        disable positive-going zero-cross enforcement
+--no-force-zero        keep edge samples equal (not hard-zero) if zero-crossing enforced
 
 DEPENDENCIES
 ------------
@@ -67,17 +78,9 @@ from matplotlib.backends.backend_pdf import PdfPages
 
 
 # ==============================
-# Progress bar (cosmetic only)
+# Progress bar (cosmetic)
 # ==============================
 def show_progress(prefix: str, completed: int, total: int, bar_width: int = 28) -> None:
-    """
-    Print a simple progress bar on one line.
-
-    prefix:      label to show before the bar
-    completed:   number of items done
-    total:       total number of items
-    bar_width:   width of the bar in characters
-    """
     percent_int = int((completed / total) * 100)
     filled_chars = int(bar_width * completed / total)
     bar = "█" * filled_chars + "·" * (bar_width - filled_chars)
@@ -88,7 +91,7 @@ def show_progress(prefix: str, completed: int, total: int, bar_width: int = 28) 
 
 
 # ======================================
-# WAV writer that embeds a loop section
+# WAV writer (mono 16-bit) with loop tag
 # ======================================
 def write_wav_with_loop(
     output_path: Path,
@@ -99,17 +102,10 @@ def write_wav_with_loop(
 ) -> None:
     """
     Write a mono 16-bit WAV with an embedded 'smpl' chunk defining a forward loop.
-
-    output_path:        file destination
-    mono_float_audio:   float32 array in [-1.0, 1.0]
-    sample_rate_hz:     output sample rate (e.g., 48000)
-    loop_start_sample:  loop region start index (default 0)
-    loop_end_sample:    loop region end index (default last sample)
     """
     if loop_end_sample is None:
         loop_end_sample = len(mono_float_audio) - 1
 
-    # clamp to [-1, 1] and convert to 16-bit little-endian PCM
     clamped = np.clip(mono_float_audio.astype(np.float32), -1.0, 1.0)
     pcm_bytes = (clamped * 32767.0).astype("<i2").tobytes()
 
@@ -121,7 +117,7 @@ def write_wav_with_loop(
     )
     data_chunk = b"data" + struct.pack("<I", len(pcm_bytes)) + pcm_bytes
 
-    # 'smpl' chunk with one loop
+    # 'smpl' chunk (one forward loop region: 0 → end)
     manufacturer = 0
     product = 0
     sample_period_ns = int(1e9 / sample_rate_hz)  # in nanoseconds
@@ -170,12 +166,7 @@ def write_wav_with_loop(
 # =========================================
 # DSP helpers: normalization and band-limit
 # =========================================
-def remove_dc_and_normalize_peak(
-    waveform: np.ndarray, target_peak: float = 0.999
-) -> np.ndarray:
-    """
-    Remove DC offset and normalize the peak to target_peak.
-    """
+def remove_dc_and_normalize_peak(waveform: np.ndarray, target_peak: float = 0.999) -> np.ndarray:
     waveform = waveform - np.mean(waveform)
     peak_value = float(np.max(np.abs(waveform)))
     if peak_value <= 1e-12:
@@ -183,12 +174,10 @@ def remove_dc_and_normalize_peak(
     return (waveform / peak_value) * target_peak
 
 
-def make_clean_bandlimited_copy(
-    waveform: np.ndarray, keep_fraction: float = 0.6
-) -> np.ndarray:
+def make_clean_bandlimited_copy(waveform: np.ndarray, keep_fraction: float = 0.6) -> np.ndarray:
     """
-    Mild high-end rolloff by cosine windowing the top (1 - keep_fraction) of FFT bins.
-    keep_fraction = 0.6 keeps the lowest 60% of bins untouched.
+    Mild HF rolloff by cosine windowing the top (1 - keep_fraction) of FFT bins.
+    keep_fraction = 0.6 keeps the lowest 60% untouched; fades remainder to Nyquist.
     """
     spectrum = np.fft.rfft(waveform)
     num_bins = len(spectrum)
@@ -200,9 +189,6 @@ def make_clean_bandlimited_copy(
 
 
 def magnitude_spectrum_db(waveform: np.ndarray) -> np.ndarray:
-    """
-    Return a magnitude spectrum in dB, normalized to 0 dB peak.
-    """
     windowed = waveform * np.hanning(len(waveform))
     spectrum = np.fft.rfft(windowed)
     magnitude = 20 * np.log10(np.maximum(1e-9, np.abs(spectrum)))
@@ -212,9 +198,6 @@ def magnitude_spectrum_db(waveform: np.ndarray) -> np.ndarray:
 def apply_series_notch_filters(
     audio_data: np.ndarray, sample_rate_hz: int, notch_hz_list: list[float], quality_factor: float = 40.0
 ) -> np.ndarray:
-    """
-    Apply narrow IIR notch filters at the specified frequencies (e.g., 60/120/180/240 Hz).
-    """
     filtered = audio_data
     for notch_hz in notch_hz_list:
         b_coeff, a_coeff = iirnotch(notch_hz, quality_factor, sample_rate_hz)
@@ -222,17 +205,30 @@ def apply_series_notch_filters(
     return filtered
 
 
+# ===============================
+# MIDI note → frequency (A4 tun.)
+# ===============================
+def midi_note_to_frequency(midi_note_number: int, tuning_a4_hz: float = 440.0) -> float:
+    """
+    MIDI → Hz via equal temperament. A4 (MIDI 69) = tuning_a4_hz.
+    Examples:
+      69 → 440.0 Hz (A4)
+      60 → 261.625565 Hz (often labeled “C5” on synth UIs; Middle C)
+      72 → 523.251131 Hz (one octave above)
+    """
+    if midi_note_number < 0 or midi_note_number > 127:
+        raise ValueError(f"--note-midi must be in [0,127], got {midi_note_number}")
+    if tuning_a4_hz <= 0:
+        raise ValueError(f"--tuning-a4 must be > 0, got {tuning_a4_hz}")
+    return float(tuning_a4_hz) * (2.0 ** ((midi_note_number - 69) / 12.0))
+
+
 # =========================================================
 # Zero-cross alignment + edge conditioning for loop seams
 # =========================================================
 def index_of_positive_zero_cross(waveform: np.ndarray) -> int:
-    """
-    Find an index 'i' where waveform[i] <= 0 and waveform[i+1] > 0 (positive-going),
-    preferring crossings with the smallest absolute sample value.
-    """
     crossing_indices = np.where(np.diff(np.signbit(waveform)))[0]
     if len(crossing_indices) == 0:
-        # fallback: pick the nearest-to-zero sample (start index)
         return int(np.argmin(np.abs(waveform[:-1])))
     positive_goers = [i for i in crossing_indices if waveform[i] <= 0 and waveform[i + 1] > 0]
     candidate_indices = positive_goers if positive_goers else crossing_indices.tolist()
@@ -241,9 +237,6 @@ def index_of_positive_zero_cross(waveform: np.ndarray) -> int:
 
 
 def rotate_waveform_to_start_at_pos_zero_cross(waveform: np.ndarray) -> np.ndarray:
-    """
-    Circularly rotate the waveform so index 0 lands at a positive-going zero crossing.
-    """
     crossing_index = index_of_positive_zero_cross(waveform)
     start_index = crossing_index if abs(waveform[crossing_index]) <= abs(waveform[crossing_index + 1]) else crossing_index + 1
     return np.r_[waveform[start_index:], waveform[:start_index]]
@@ -254,12 +247,11 @@ def enforce_clickless_loop(
 ) -> np.ndarray:
     """
     Make loop boundaries clickless:
-    1) rotate to a positive-going zero-crossing,
-    2) either force the first/last samples to exactly 0.0 and apply tiny cosine fades,
-       or ensure start==end by averaging (if force_hard_zero_edges=False).
+      1) rotate to a positive-going zero crossing,
+      2) either force the first/last samples to 0.0 with tiny cosine fades (best for CV),
+         or simply equalize edges (if force_hard_zero_edges=False).
     """
     rotated = rotate_waveform_to_start_at_pos_zero_cross(waveform).copy()
-
     if force_hard_zero_edges:
         rotated[0] = 0.0
         rotated[-1] = 0.0
@@ -271,7 +263,6 @@ def enforce_clickless_loop(
         average_edge_value = 0.5 * (rotated[0] + rotated[-1])
         rotated[0] = average_edge_value
         rotated[-1] = average_edge_value
-
     return rotated
 
 
@@ -291,11 +282,6 @@ def segment_sweep_by_envelope(
     """
     Detect up to 'expected_wave_count' sounding regions using an RMS envelope.
     Returns a list of (start_sample, end_sample) tuples.
-
-    Notes:
-    - 'minimum_on_milliseconds' filters out spurious short blips.
-    - pre/post pad place a cushion around the detected region center so
-      later analysis stays in the stable portion of the tone.
     """
     rms_window_length = max(1, int(sample_rate_hz * rms_window_milliseconds / 1000.0))
     running_rms = np.sqrt(
@@ -305,7 +291,6 @@ def segment_sweep_by_envelope(
     rms_db = 20 * np.log10(np.maximum(1e-12, running_rms))
     is_sound_on = rms_db > silence_threshold_db
 
-    # rising edges where the signal crosses from "off" to "on"
     rising_edges = np.where(is_sound_on[1:] & (~is_sound_on[:-1]))[0] + 1
     if is_sound_on[0]:
         rising_edges = np.r_[0, rising_edges]
@@ -336,12 +321,9 @@ def segment_sweep_by_envelope(
     return [(k * slice_length, (k + 1) * slice_length) for k in range(expected_wave_count)]
 
 
-def choose_loudest_subwindow(
-    segment_audio: np.ndarray, sample_rate_hz: int, subwindow_seconds: float = 0.8
-) -> np.ndarray:
+def choose_loudest_subwindow(segment_audio: np.ndarray, sample_rate_hz: int, subwindow_seconds: float = 0.8) -> np.ndarray:
     """
-    Slide a fixed window across the segment and keep the highest-RMS subwindow.
-    This tends to land on the most stable part of the tone for period detection.
+    Slide a fixed window across the segment and keep the highest-RMS subwindow (stable tone).
     """
     subwindow_length = int(sample_rate_hz * subwindow_seconds)
     if len(segment_audio) <= subwindow_length:
@@ -360,12 +342,9 @@ def choose_loudest_subwindow(
     return segment_audio[best_start_index : best_start_index + subwindow_length]
 
 
-def estimate_period_via_autocorrelation(
-    segment_audio: np.ndarray, sample_rate_hz: int, period_hint_samples: int
-) -> int:
+def estimate_period_via_autocorrelation(segment_audio: np.ndarray, sample_rate_hz: int, period_hint_samples: int) -> int:
     """
-    Use an autocorrelation search around 'period_hint_samples' to estimate the period.
-    Keeps us from slipping to an octave/harmonic by constraining the search window.
+    Autocorrelation around a constrained window to estimate the fundamental period.
     """
     center_index = len(segment_audio) // 2
     half_window_samples = int(0.4 * sample_rate_hz)
@@ -395,12 +374,12 @@ def extract_single_cycle(
     edge_fade_samples: int,
 ) -> tuple[np.ndarray, int]:
     """
-    Extract a single period from 'segment_audio' and resample it to 'output_cycle_length'.
-    Returns (single_cycle_waveform, detected_period_samples).
+    Extract one period from 'segment_audio', resample it to 'output_cycle_length',
+    condition the loop edge, and return (single_cycle, detected_period_samples).
     """
     detected_period = estimate_period_via_autocorrelation(segment_audio, sample_rate_hz, period_hint_samples)
 
-    # Find a start cut near the middle: align to a zero crossing closest to the expected phase
+    # Cut a period near the center, aligning to the nearest zero crossing
     middle_index = len(segment_audio) // 2
     zero_crossings = np.where(np.diff(np.signbit(segment_audio)))[0]
     target_index = middle_index - detected_period // 2
@@ -411,14 +390,11 @@ def extract_single_cycle(
 
     single_period = segment_audio[start_index : start_index + detected_period]
     if len(single_period) < detected_period:
-        # Wrap-pad if we ran off the end
         single_period = np.pad(single_period, (0, detected_period - len(single_period)), mode="wrap")
 
-    # Normalize to a fixed number of samples (e.g., 65,536) for export
     resampled_cycle = resample(single_period, output_cycle_length)
     resampled_cycle = remove_dc_and_normalize_peak(resampled_cycle, target_peak=target_peak)
 
-    # Make loop point clickless (phase align, optional micro-fade)
     if enforce_zero_cross:
         resampled_cycle = enforce_clickless_loop(
             resampled_cycle,
@@ -434,7 +410,7 @@ def extract_single_cycle(
 # ==========
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generic single-cycle extractor from synth sweeps.")
-    # Required inputs/outputs
+    # Required I/O
     parser.add_argument("--in", dest="input_path", type=Path, required=True, help="Input long recording (.wav)")
     parser.add_argument("--out", dest="output_dir", type=Path, required=True, help="Output base folder")
 
@@ -442,8 +418,23 @@ def main() -> None:
     parser.add_argument("--fs", dest="target_sample_rate_hz", type=float, default=48000.0, help="Target sample rate (Hz)")
     parser.add_argument("--n-out", dest="output_cycle_length", type=int, default=65536, help="Samples per exported cycle")
     parser.add_argument("--amp", dest="target_peak", type=float, default=0.999, help="Peak normalization per file")
-    parser.add_argument("--freq-c5", dest="assumed_c5_frequency_hz", type=float, default=523.2511306011972,
-                        help="Nominal base frequency used by the period finder (Hz)")
+
+    # Period hint controls
+    parser.add_argument(
+        "--freq-note",
+        dest="assumed_note_frequency_hz",
+        type=float,
+        default=261.625565,
+        help=("Base frequency (Hz) of the recorded note used to guide period detection. "
+              "If you recorded one octave higher, set to 523.251131. "
+              "This only sizes the autocorrelation window; it does not retune exports.")
+    )
+    parser.add_argument("--note-midi", dest="note_midi", type=int, default=None,
+                        help="MIDI note number of the recorded key (e.g., 60). Ignored if --freq-note is provided.")
+    parser.add_argument("--tuning-a4", dest="tuning_a4_hz", type=float, default=440.0,
+                        help="A4 tuning in Hz (default 440.0) for MIDI→Hz conversion.")
+
+    # Sweep structure
     parser.add_argument("--num-waves", dest="expected_wave_count", type=int, default=64,
                         help="Expected number of distinct tones in the sweep")
     parser.add_argument("--count", dest="waves_to_export", type=int, default=None,
@@ -461,7 +452,7 @@ def main() -> None:
     parser.add_argument("--rms-win-ms", dest="rms_window_milliseconds", type=int, default=10,
                         help="RMS envelope window (ms)")
 
-    # Optional mains de-hum (off by default — only enable if hum is biasing detection)
+    # Optional de-hum (off by default)
     parser.add_argument("--dehum", dest="enable_dehum", action="store_true", help="Enable 60/120/180/240 Hz notches")
     parser.add_argument("--dehum-q", dest="dehum_quality_factor", type=float, default=40.0, help="Notch Q (higher = narrower)")
 
@@ -473,7 +464,7 @@ def main() -> None:
     parser.add_argument("--no-zero-cross", dest="enforce_zero_cross", action="store_false",
                         help="Disable rotating to a positive-going zero crossing")
     parser.add_argument("--no-force-zero", dest="force_hard_zero_edges", action="store_false",
-                        help="Do not force exact zeros at start/end; just equalize edges")
+                        help="Do not force exact zeros at start/end; only equalize edges")
     parser.add_argument("--edge-fade", dest="edge_fade_samples", type=int, default=8,
                         help="Cosine micro-fade samples at loop edges (0=off)")
 
@@ -485,7 +476,15 @@ def main() -> None:
     target_sample_rate_hz: int = int(args.target_sample_rate_hz)
     output_cycle_length: int = int(args.output_cycle_length)
     target_peak: float = float(args.target_peak)
-    assumed_c5_frequency_hz: float = float(args.assumed_c5_frequency_hz)
+
+    # Determine base frequency for the period-hint (priority: explicit freq-note > derived from MIDI > default)
+    assumed_note_frequency_hz: float = float(args.assumed_note_frequency_hz)
+    user_explicit_freq_note = any(arg.startswith("--freq-note") for arg in sys.argv)
+    if (args.note_midi is not None) and (not user_explicit_freq_note):
+        derived_freq_hz = midi_note_to_frequency(args.note_midi, args.tuning_a4_hz)
+        print(f"          Using MIDI-derived frequency: note {args.note_midi} @ A4={args.tuning_a4_hz:g} Hz → {derived_freq_hz:.6f} Hz")
+        assumed_note_frequency_hz = float(derived_freq_hz)
+
     expected_wave_count: int = int(args.expected_wave_count)
     waves_to_export: int = int(args.waves_to_export if args.waves_to_export else expected_wave_count)
     silence_threshold_db: float = float(args.silence_threshold_db)
@@ -496,8 +495,8 @@ def main() -> None:
     enable_dehum: bool = bool(args.enable_dehum)
     dehum_quality_factor: float = float(args.dehum_quality_factor)
     clean_keep_fraction: float = float(args.clean_keep_fraction)
-    enforce_zero_cross: bool = bool(args.enforce_zero_cross)  # default True
-    force_hard_zero_edges: bool = bool(args.force_hard_zero_edges)  # default True
+    enforce_zero_cross: bool = bool(args.enforce_zero_cross)      # default True
+    force_hard_zero_edges: bool = bool(args.force_hard_zero_edges) # default True
     edge_fade_samples: int = int(args.edge_fade_samples)
 
     # Filenames inside output_dir
@@ -525,7 +524,7 @@ def main() -> None:
     else:
         working_sample_rate_hz = int(input_sample_rate_hz)
 
-    # Optional de-hum (off by default)
+    # Optional de-hum
     if enable_dehum:
         print("Step 2/6  De-hum at 60/120/180/240 Hz…")
         audio_data = apply_series_notch_filters(
@@ -556,8 +555,8 @@ def main() -> None:
     dirty_dir.mkdir(parents=True, exist_ok=True)
     clean_dir.mkdir(parents=True, exist_ok=True)
 
-    # C5 period hint (in samples): guides the autocorrelation search window
-    period_hint_samples = int(round(working_sample_rate_hz / assumed_c5_frequency_hz))
+    # Period hint (in samples): guides the autocorrelation search window
+    period_hint_samples = int(round(working_sample_rate_hz / assumed_note_frequency_hz))
 
     csv_rows = [["name", "peak_abs", "dc", "period_samples"]]
 
@@ -576,10 +575,9 @@ def main() -> None:
             edge_fade_samples=edge_fade_samples,
         )
 
-        # File naming kept ≤8 chars for AR displays
-        file_stem = f"WAVE{wave_index:02d}"
+        file_stem = f"WAVE{wave_index:02d}"  # ≤8 chars (Elektron display-safe)
 
-        # Write DIRTY (raw) file
+        # DIRTY (raw)
         write_wav_with_loop(
             output_path=dirty_dir / f"{file_stem}.wav",
             mono_float_audio=single_cycle,
@@ -588,7 +586,7 @@ def main() -> None:
             loop_end_sample=len(single_cycle) - 1,
         )
 
-        # Make a CLEAN copy (mildly band-limited) with the same loop conditioning
+        # CLEAN (mildly band-limited)
         clean_cycle = remove_dc_and_normalize_peak(
             make_clean_bandlimited_copy(single_cycle, keep_fraction=clean_keep_fraction),
             target_peak=target_peak,
@@ -599,7 +597,6 @@ def main() -> None:
                 force_hard_zero_edges=force_hard_zero_edges,
                 edge_fade_samples=edge_fade_samples,
             )
-
         write_wav_with_loop(
             output_path=clean_dir / f"{file_stem}.wav",
             mono_float_audio=clean_cycle,
@@ -622,18 +619,12 @@ def main() -> None:
             if preview_audio.ndim == 2:
                 preview_audio = preview_audio[:, 0]
             figure, axes = plt.subplots(1, 2, figsize=(7.2, 2.0))
-            # Time domain (first few thousand samples is enough to see shape)
-            axes[0].plot(preview_audio[:2048])
-            axes[0].set_title(f"{file_stem} (time)", fontsize=9)
+            axes[0].plot(preview_audio[:2048]); axes[0].set_title(f"{file_stem} (time)", fontsize=9)
             axes[0].set_xticks([]); axes[0].set_yticks([])
-            # Spectrum
-            spectrum_db = magnitude_spectrum_db(preview_audio)
-            axes[1].plot(spectrum_db)
+            spectrum_db = magnitude_spectrum_db(preview_audio); axes[1].plot(spectrum_db)
             axes[1].set_title(f"{file_stem} (spectrum dB)", fontsize=9)
             axes[1].set_xticks([]); axes[1].set_yticks([])
-            figure.tight_layout()
-            pdf_handle.savefig(figure)
-            plt.close(figure)
+            figure.tight_layout(); pdf_handle.savefig(figure); plt.close(figure)
             show_progress("          Drawing preview", wave_index + 1, waves_to_export)
 
     print(f"Step {next_step+3}/6  Writing CSV…")
@@ -653,4 +644,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    t0 = time.time()
     main()
