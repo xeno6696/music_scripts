@@ -1,9 +1,9 @@
 # Music Tools to assist with various problms 
 This repository is a simple collection of various scripts (some of which are AI generated) that are designed to assiss with real problems.  
 
-##Analog RYTM Scripts
+## Analog RYTM Scripts
 
-###src/Python/wav_extract.py  
+### src/Python/wav_extract.py  
 
 Check usage to understand:
 ```
@@ -92,7 +92,7 @@ Hum biasing detection → try --dehum or raise --silence-db (e.g., -35).
 ##WARNING:  In my experience, hum biasing hasn't produced useful results, i.e., it ends up outputing completely zeroed-out waves.  Use at your own risk,
 PR's accepted.  (I just fixed the hum in the studio and gave up on it.)  
 
-###src/Python/ar_lfo_tune.py
+### src/Python/ar_lfo_tune.py
 
 You feed in:
 **
