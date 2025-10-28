@@ -17,7 +17,8 @@ HOW TO USE WITH MY AR?
 11.  Press encoder to select a pad, use top row encoders to pick a modulation destination, use lower level encoders to set an amount
 12.  As the system plays you should see the sensor on the far left changing numbers and possibly bars moving up and down.
 13.  If you pick something like a dual VCO on BD or SD, set the target to "FILT FRQ" and then you should be in business.  Make sure you put long trigs down in order to hear the results
-14.  BRAP ON!  
+14.  BRAP ON!
+15.  
 ### src/Python/wav_extract.py  
 This script started when I read a comment from ExpectResistance's page on YT that suggested that you could use arbitrary waves as input to
 the AR's CV inputs (Control-In) and immediately it hit me upside the head--I also have a blackbox and one of the things that's really amazing about it
@@ -26,7 +27,7 @@ of the AR as input to Control In, I got to work.  My first target was simply to 
 using this script to elongate the cycles so that instead of centering around C5 (261.625580) they center down near 3Hz.  Playing a note at C0 should result in a VERY glacial but still smooth wave.  As a part of this process I decided to share my learning--I learned *alot* about digital audio as 
 a result of this process and hope you will as well.  You will notice a "CLEAN" and "DIRTY" folder in artifacts/.  Dirty are unaliased waves, though at the glacial pace we're playing with here, steps might not even be audible.  However if you pitch these waves WAY UP you should get some interesting results.  You WILL LOSE A VOICE but you will gain an arbitrary modulation source that also responds to sample edits, i.e. you you can alter the LFO shape in real time by messing with sample start/end points.  
 
-Why all this work to get shapes from my virus synth?  Raw samples might work, but there's alot of noise involved with sampling.  (Not *always* ideal.)  I wanted to get scientficially crafted artifact-free virus waves.  The Access Virus allowed you to use all of the wave types as LFO sources, and I wanted to expand that capability.  
+Why all this work to get shapes from my virus synth?  Raw samples might work, but there's alot of noise involved with sampling.  (Not *always* ideal.)  I wanted to get scientficially crafted artifact-free virus waves.  The Access Virus allowed you to use all of the wave types as LFO sources, and I wanted to expand that capability.  Unfortunately, the AR's sampling engine automatically normalizes all inputs, so while you can record CV output from modular gear (my first attempt) like you can do with the blackbox, because normalization assumes audible material, the only audible thing is the noise floor, so that gets raised up and buries the CV signal.  (There might be an interesting experiment to possibly control that such that the CV signal is mildly influenced by noise...)  
 
 
 
