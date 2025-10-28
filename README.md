@@ -119,8 +119,16 @@ Hum biasing detection → try --dehum or raise --silence-db (e.g., -35).
 PR's accepted.  (I just fixed the hum in the studio and gave up on it.)  
 
 ### src/Python/ar_lfo_tune.py
+
+This script is based on the following equation:
+
 ![Image 1](https://latex.codecogs.com/svg.image?%5CLARGE&space;&space;s=12log_%7B2%7D%5Cleft(%5Cfrac%7BBPM*N%7D%7B15*steps*F_%7Bs%7D%7D%5Cright)#n9dkrnsyaj)
 
+If you're attempting to play along, by default our N term (samples) and F-sub-s (sample rate) term are autpopulated in the script like so:
+
+![Image 1](https://latex.codecogs.com/svg.image?%5CLARGE&space;&space;s=12log_%7B2%7D%5Cleft(%5Cfrac%7BBPM*65536%7D%7B15*Steps*48000%7D%5Cright)#syh1gi3996e)
+
+Our script here defaults like this.  If you want a different output length, 65536 was picked because it was the most scalable.  You can get glacially slow cycles if you double it, and of course, you can decrease the size too.  The suggestion is to ensure your number is in a power of 2, but I mean, you can totally play with this and make other choices to see if you get weird artifacts or noise into your cycles.  
 
 You feed in:
 **BPM (tempo)**
