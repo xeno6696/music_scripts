@@ -1,4 +1,4 @@
-# Music Tools to assist with various problms 
+# Music Tools to assist with various problems 
 This repository is a simple collection of various scripts (some of which are AI generated) that are designed to assist with real problems.  
 
 ## Analog RYTM Scripts
