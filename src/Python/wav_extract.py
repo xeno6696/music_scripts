@@ -13,7 +13,7 @@ to a positive-going zero-cross (with optional micro-fade), and exports:
 
 • DIRTY/  → raw single-cycles (48 kHz, 16-bit, mono), loop points embedded
 • CLEAN/  → mildly band-limited copies (same format), loop points embedded
-• Preview.pdf  → time plot + spectrum per wave
+• Preview.pdf  → one full-cycle time plot + harmonic bars (dB)
 • Summary.csv  → peak, DC offset, detected period (samples)
 • <out>.zip    → everything zipped for easy transfer
 
@@ -406,6 +406,29 @@ def extract_single_cycle(
 
 
 # ==========
+# Harmonic bars helper (for PDF)
+# ==========
+def harmonic_bars(one_cycle: np.ndarray, max_harmonics: int = 64, as_db: bool = True):
+    """
+    Compute (harmonic_index, magnitude) for the first `max_harmonics` harmonics.
+    Assumes `one_cycle` is exactly one period. Skips DC (bin 0).
+    Normalizes so the strongest harmonic = 0 dB (if as_db=True).
+    """
+    spectrum = np.fft.rfft(one_cycle)  # exact harmonic bins (no window)
+    mag = np.abs(spectrum)
+    mag = mag / (mag.max() + 1e-12)
+
+    hmax = min(max_harmonics, len(mag) - 1)
+    idx = np.arange(1, hmax + 1)
+    vals = mag[1:hmax + 1]
+
+    if as_db:
+        vals = 20 * np.log10(np.maximum(1e-12, vals))  # 0 dB = strongest harmonic
+
+    return idx, vals
+
+
+# ==========
 # CLI Setup
 # ==========
 def main() -> None:
@@ -495,7 +518,7 @@ def main() -> None:
     enable_dehum: bool = bool(args.enable_dehum)
     dehum_quality_factor: float = float(args.dehum_quality_factor)
     clean_keep_fraction: float = float(args.clean_keep_fraction)
-    enforce_zero_cross: bool = bool(args.enforce_zero_cross)      # default True
+    enforce_zero_cross: bool = bool(args.enforce_zero_cross)       # default True
     force_hard_zero_edges: bool = bool(args.force_hard_zero_edges) # default True
     edge_fade_samples: int = int(args.edge_fade_samples)
 
@@ -546,14 +569,11 @@ def main() -> None:
         rms_window_milliseconds=rms_window_milliseconds,
         silence_threshold_db=silence_threshold_db,
     )
-
-    # New:
     segments = segments[:waves_to_export]
-    actual_count = len(segments)           # ← what we really found
+    actual_count = len(segments)
     if actual_count == 0:
         raise RuntimeError("No segments detected. Try adjusting --silence-db or --min-on-ms.")
-    waves_to_export = actual_count         # ← drive all loops with the real count
-
+    waves_to_export = actual_count  # drive all downstream loops with the real count
 
     # === Extract single cycles ===
     print(f"Step {next_step+1}/6  Extracting single cycles…")
@@ -617,54 +637,70 @@ def main() -> None:
         )
         show_progress("          Rendering waves", wave_index, waves_to_export)
 
-        # === Reports (PDF, CSV, ZIP) ===
-        print(f"Step {next_step+2}/6  Building PDF preview…")
-        with PdfPages(str(preview_pdf_path)) as pdf_handle:
-            for wave_index in range(waves_to_export):
-                file_stem = f"WAVE{wave_index+1:02d}"
-                wav_path = dirty_dir / f"{file_stem}.wav"
-                if not wav_path.exists():
-                    # Skip gracefully if a file is missing for any reason
-                    continue
-                cycle, _ = sf.read(str(wav_path), always_2d=False)
-                if cycle.ndim == 2:
-                    cycle = cycle[:, 0]
-                cycle = cycle.astype(np.float32)
+    # === Reports (PDF, CSV, ZIP) ===
+    print(f"Step {next_step+2}/6  Building PDF preview…")
+    with PdfPages(str(preview_pdf_path)) as pdf_handle:
+        for wave_index in range(waves_to_export):
+            file_stem = f"WAVE{wave_index+1:02d}"
+            dirty_path = dirty_dir / f"{file_stem}.wav"
+            if not dirty_path.exists():
+                continue
+            cycle, _ = sf.read(str(dirty_path), always_2d=False)
+            if cycle.ndim == 2:
+                cycle = cycle[:, 0]
+            cycle = cycle.astype(np.float32)
 
-                # Downsample the FULL cycle to a fixed preview length so we always show 1 complete period.
-                preview_len = 2048
-                if len(cycle) != preview_len:
-                    # Use FFT resample for clean downsampling of the full period
-                    cycle_vis = np.real(np.fft.irfft(np.fft.rfft(cycle), n=preview_len))
-                    # Re-normalize visualization to avoid accidental tiny ranges from numerical effects
-                    peak = np.max(np.abs(cycle_vis)) or 1.0
-                    cycle_vis = cycle_vis / peak
-                else:
-                    cycle_vis = cycle
+            # Downsample the FULL cycle to a fixed preview length to show 1 complete period
+            preview_len = 2048
+            if len(cycle) != preview_len:
+                cycle_vis = np.real(np.fft.irfft(np.fft.rfft(cycle), n=preview_len))
+                peak = np.max(np.abs(cycle_vis)) or 1.0
+                cycle_vis = cycle_vis / peak
+            else:
+                cycle_vis = cycle
 
-                # Also compute magnitude spectrum in dB for the raw cycle
-                spectrum_db = magnitude_spectrum_db(cycle)
+            # Prepare harmonic bars (DIRTY)
+            harmonics_to_show = 64
+            harm_idx, harm_vals_db = harmonic_bars(cycle, max_harmonics=harmonics_to_show, as_db=True)
 
-                fig, axs = plt.subplots(1, 2, figsize=(7.6, 2.2))
-                # Time-domain: guaranteed one full cycle
-                axs[0].plot(cycle_vis, linewidth=1.0)
-                axs[0].set_title(f"{file_stem} — 1 full cycle (downsampled to {preview_len})", fontsize=9)
-                axs[0].set_xlim(0, len(cycle_vis)-1)
-                axs[0].set_ylim(-1.05, 1.05)
-                axs[0].grid(True, linewidth=0.3, alpha=0.4)
-                axs[0].set_xticks([]); axs[0].set_yticks([])
+            # Try to load CLEAN to overlay (optional)
+            clean_path = clean_dir / f"{file_stem}.wav"
+            have_clean = clean_path.exists()
+            if have_clean:
+                cycle_clean, _ = sf.read(str(clean_path), always_2d=False)
+                if cycle_clean.ndim == 2:
+                    cycle_clean = cycle_clean[:, 0]
+                cycle_clean = cycle_clean.astype(np.float32)
+                h_idx_c, harm_vals_db_clean = harmonic_bars(cycle_clean, max_harmonics=harmonics_to_show, as_db=True)
 
-                # Spectrum view
-                axs[1].plot(spectrum_db, linewidth=1.0)
-                axs[1].set_title(f"{file_stem} — spectrum (dB)", fontsize=9)
-                axs[1].grid(True, linewidth=0.3, alpha=0.4)
-                axs[1].set_xticks([]); axs[1].set_yticks([])
+            fig, axs = plt.subplots(1, 2, figsize=(7.6, 2.4))
 
-                fig.tight_layout()
-                pdf_handle.savefig(fig)
-                plt.close(fig)
-                show_progress("          Drawing preview", wave_index + 1, waves_to_export)
+            # Time-domain panel (one full cycle)
+            axs[0].plot(cycle_vis, linewidth=1.0, label="DIRTY")
+            axs[0].set_title(f"{file_stem} — 1 full cycle (downsampled to {preview_len})", fontsize=9)
+            axs[0].set_xlim(0, len(cycle_vis)-1)
+            axs[0].set_ylim(-1.05, 1.05)
+            axs[0].grid(True, linewidth=0.3, alpha=0.4)
+            axs[0].set_xticks([]); axs[0].set_yticks([])
 
+            # Harmonic bar panel
+            axs[1].bar(harm_idx, harm_vals_db, width=0.85, label="DIRTY")
+            if have_clean:
+                # Slight offset bars for CLEAN overlay
+                axs[1].bar(h_idx_c + 0.35, harm_vals_db_clean, width=0.85, alpha=0.55, label="CLEAN")
+            axs[1].set_title(f"{file_stem} — harmonics (dB)", fontsize=9)
+            axs[1].set_xlabel("Harmonic number")
+            axs[1].set_ylabel("Level (dB)")
+            axs[1].set_xlim(0.5, harm_idx[-1] + 0.5)
+            axs[1].set_ylim(-80, 0)
+            axs[1].grid(True, axis="y", linewidth=0.3, alpha=0.4)
+            if have_clean:
+                axs[1].legend(frameon=False, fontsize=8, loc="lower left")
+
+            fig.tight_layout()
+            pdf_handle.savefig(fig)
+            plt.close(fig)
+            show_progress("          Drawing preview", wave_index + 1, waves_to_export)
 
     print(f"Step {next_step+3}/6  Writing CSV…")
     with open(summary_csv_path, "w", newline="") as csv_file:
